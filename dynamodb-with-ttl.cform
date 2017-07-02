@@ -1,0 +1,516 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Create DynamoDB table with TTL monitoring on specified item attribute",
+  "Parameters": {
+    "HashKeyAttributeName" : {
+      "Description" : "The attribute name that will be the Hash key of the table",
+      "Type" : "String"
+    },
+    "HashKeyAttributeType" : {
+      "Description" : "The attribute type of the Hash key of the table",
+      "Type" : "String",
+      "Default" : "S",
+      "AllowedValues" : [ "S", "N", "B" ]
+    },
+    "RangeKeyAttributeName" : {
+      "Description" : "(Optional) The attribute name that will be the range key of the table",
+      "Type" : "String",
+      "Default" : ""
+    },
+    "RangeKeyAttributeType" : {
+      "Description" : "The attribute type of the Range key of the table",
+      "Type" : "String",
+      "Default" : "S",
+      "AllowedValues" : [ "S", "N", "B" ]
+    },
+    "ProvisionedReadCapacityUnits" : {
+      "Description" : "The read IOPS for the table",
+      "Type" : "Number",
+      "Default" : "5"
+    },
+    "ProvisionedWriteCapacityUnits" : {
+      "Description" : "The write IOPS for the table",
+      "Type" : "Number",
+      "Default" : "5"
+    },
+    "TTLAttributeName" : {
+      "Description" : "The name of the (Number) attribute that will be used for TTL",
+      "Type" : "String"
+    },
+    "StreamType" : {
+      "Description" : "Type of streaming on the table. Select NONE for no streaming",
+      "Type" : "String",
+      "Default" : "NONE",
+      "AllowedValues" : [ "NONE", "NEW_IMAGE", "OLD_IMAGE", "NEW_AND_OLD_IMAGES", "KEYS_ONLY" ]
+    },
+    "UpdateViaVPC" : {
+      "Description" : "Whether the TTL update Lambda operates inside a VPC",
+      "Default" : "false",
+      "Type" : "String",
+      "AllowedValues" : [ "true", "false" ]
+    },
+    "VPC" : {
+      "Description" : "The VPC Id to which the TTL Lambda should operate",
+      "Type" : "String",
+      "Default" : ""
+    },
+    "VPCSubnetList" : {
+      "Description" : "Comma separated string of the subnets the TTL Lambda should use",
+      "Type" : "String",
+      "Default" : ""
+    },
+    "VPCRouteTable" : {
+      "Description" : "The VPC Route Table Id that the TTL Lambda will use",
+      "Type" : "String",
+      "Default" : ""
+    },
+    "DDBEndpointPrefixList" : {
+      "Description" : "The prefix list 'pl-xxxxxxx' value for DynamoDB in the deployment region.  Use 'aws ec2 describe-prefix-lists'",
+      "Type" : "String"
+    }
+  },
+  "Conditions" : {
+    "RangeKeySpecified" : { "Fn::Not" : [ { "Fn::Equals" : [ { "Ref" : "RangeKeyAttributeName" }, "" ] } ] },
+    "StreamingSpecified" : { "Fn::Not" : [ { "Fn::Equals" : [ { "Ref" : "StreamType" }, "NONE" ] } ] },
+    "UseVPC" : { "Fn::Equals" : [ { "Ref" : "UpdateViaVPC" }, "true" ] }
+  },
+  "Resources": {
+    "DynamoDBTable" : {
+        "Type" : "AWS::DynamoDB::Table",
+        "Properties" : {
+            "AttributeDefinitions" : {
+              "Fn::If" : [
+                "RangeKeySpecified",
+                [
+                    {
+                        "AttributeName" : { "Ref" : "HashKeyAttributeName" },
+                        "AttributeType" : { "Ref" : "HashKeyAttributeType" }
+                    },
+                    {
+                        "AttributeName" : { "Ref" : "RangeKeyAttributeName" },
+                        "AttributeType" : { "Ref" : "RangeKeyAttributeType" }
+                    }
+                ],
+                [
+                    {
+                        "AttributeName" : { "Ref" : "HashKeyAttributeName" },
+                        "AttributeType" : { "Ref" : "HashKeyAttributeType" }
+                    }
+                ]
+              ]
+            },
+            "KeySchema" : {
+              "Fn::If" : [
+                "RangeKeySpecified",
+                [
+                    {
+                        "AttributeName" : { "Ref" : "HashKeyAttributeName" },
+                        "KeyType" : "HASH"
+                    },
+                    {
+                        "AttributeName" : { "Ref" : "RangeKeyAttributeName" },
+                        "KeyType" : "RANGE"
+                    }
+                ],
+                [
+                    {
+                        "AttributeName" : { "Ref" : "HashKeyAttributeName" },
+                        "KeyType" : "HASH"
+                    }
+                ]
+              ]
+            },
+            "ProvisionedThroughput" : {
+                "ReadCapacityUnits" : { "Ref" : "ProvisionedReadCapacityUnits" },
+                "WriteCapacityUnits" : { "Ref" : "ProvisionedWriteCapacityUnits" }
+            },
+            "StreamSpecification" : {
+              "Fn::If" : [
+                "StreamingSpecified",
+                {
+                  "StreamViewType" : { "Ref" : "StreamType" }
+                },
+                { "Ref" : "AWS::NoValue" }
+              ]
+            }
+        }
+    },
+    "ScheduledRule": {
+      "Type": "AWS::Events::Rule",
+      "Properties": {
+        "Description": { "Fn::Sub" : [ "Trigger event to apply TTL to ${TableName}", { "TableName" : { "Ref" : "DynamoDBTable" } } ] },
+        "Name" : { "Fn::Sub" : [ "RunOnce-TTL-${TableName}", { "TableName" : { "Ref" : "DynamoDBTable" } } ] },
+        "ScheduleExpression": "rate(1 minute)",
+        "State": "ENABLED",
+        "Targets": [{
+          "Arn": { "Fn::GetAtt": [ "ScheduledRuleTTLLambda", "Arn" ] },
+          "Id": { "Fn::Sub" : [ "TTL-Rule-${Lambda}", { "Lambda" : { "Ref": "ScheduledRuleTTLLambda" } } ] }
+        }]
+      }
+    },
+    "PermissionForEventsToInvokeLambda": {
+      "Type": "AWS::Lambda::Permission",
+      "DependsOn" : [ "ScheduledRule", "ScheduledRuleTTLLambda" ],
+      "Properties": {
+        "FunctionName": { "Ref": "ScheduledRuleTTLLambda" },
+        "Action": "lambda:InvokeFunction",
+        "Principal": "events.amazonaws.com",
+        "SourceArn": { "Fn::GetAtt": [ "ScheduledRule", "Arn" ] }
+      }
+    },
+    "ScheduledRuleTTLLambda" : {
+      "Type": "AWS::Lambda::Function",
+      "Properties" : {
+        "Code" : {
+          "ZipFile" : {
+            "Fn::Join": [
+              "\n",
+              [
+                "# Async fire of TTL lambda, then disables its own Scheduled Rule",
+                "import boto3",
+                "import os",
+                "",
+                "RULE_NAME = os.environ['RuleName']",
+                "FUNCTION_NAME = os.environ['FunctionName']",
+                "",
+                "def stop_rule():",
+                "    client = boto3.client('events')",
+                "    client.disable_rule(Name=RULE_NAME)",
+                "",
+                "def trigger_ttl():",
+                "    client = boto3.client('lambda')",
+                "    response = client.invoke(",
+                "        FunctionName=FUNCTION_NAME,",
+                "        InvocationType='Event',",
+                "        LogType='None')",
+                "    print(response)",
+                "",
+                "def lambda_handler(event, context):",
+                "    print(event)",
+                "    stop_rule()",
+                "    trigger_ttl()",
+                ""
+             ]
+            ]
+          }          
+        },
+        "Description" : { "Fn::Sub" : [ "Run-once Lambda that invokes TTL assignment for table ${TableName}", { "TableName" : { "Ref" : "DynamoDBTable" } } ] },
+        "Environment" : {
+            "Variables" : {
+                "RuleName" : { "Fn::Sub" : [ "RunOnce-TTL-${TableName}", { "TableName" : { "Ref" : "DynamoDBTable" } } ] },
+                "FunctionName" : {
+                  "Fn::Select" : [ "6", { "Fn::Split" : [ ":", { "Fn::GetAtt" : [ "TTLLambda", "Arn" ] } ] } ]
+                }
+            }
+        },
+        "Handler" : "index.lambda_handler",
+        "MemorySize" : 128,
+        "Role" : { "Fn::GetAtt": [ "ScheduledRuleTTLLambdaRole", "Arn" ] },
+        "Runtime" : "python2.7",
+        "Timeout" : 5
+      }
+    },
+    "ScheduledRuleTTLLambdaLogGroup" : {
+      "Type" : "AWS::Logs::LogGroup",
+      "Properties" : {
+        "LogGroupName" : { "Fn::Sub" : [ "/aws/lambda/${Name}", { "Name" : { "Ref" : "ScheduledRuleTTLLambda" } } ] },
+        "RetentionInDays" : "7"
+      }
+    },
+    "ScheduledRuleTTLLambdaRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Path": "/",
+        "Policies": [
+          {
+            "PolicyName": "root",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Action": [
+                    "logs:CreateLogGroup",
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents"
+                  ],
+                  "Resource": "arn:aws:logs:*:*:*",
+                  "Effect": "Allow"
+                },
+                {
+                  "Action": [
+                    "events:DisableRule"
+                  ],
+                  "Resource": { 
+                    "Fn::Sub" : [ 
+                      "arn:aws:events:${Region}:${Account}:rule/${Name}",
+                      {
+                        "Region" : { "Ref" : "AWS::Region" },
+                        "Account" : { "Ref" : "AWS::AccountId" },
+                        "Name" : { "Fn::Sub" : [ "RunOnce-TTL-${TableName}", { "TableName" : { "Ref" : "DynamoDBTable" } } ] }
+                      }
+                    ] 
+                  },
+                  "Effect": "Allow"
+                },
+                {
+                  "Action": [
+                    "lambda:InvokeFunction"
+                  ],
+                  "Resource": { "Fn::GetAtt" : [ "TTLLambda", "Arn" ] },
+                  "Effect": "Allow"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "TTLLambda" : {
+      "Type": "AWS::Lambda::Function",
+      "Properties" : {
+        "Code" : {
+          "ZipFile" : {
+            "Fn::Join": [
+              "\n",
+              [
+                "# Applies TTL to the DynamoDB table",
+                "import boto3",
+                "import os",
+                "",
+                "TABLE_NAME = os.environ['TableName']",
+                "TTL_ATTRIBUTE_NAME = os.environ['TTLAttributeName']",
+                "",
+                "def set_ttl_on_table():",
+                "    client = boto3.client('dynamodb')",
+                "    response = client.update_time_to_live(",
+                "        TableName=TABLE_NAME,",
+                "        TimeToLiveSpecification={",
+                "            'Enabled': True,",
+                "            'AttributeName': TTL_ATTRIBUTE_NAME",
+                "        })",
+                "    print(response)",
+                "",
+                "def lambda_handler(event, context):",
+                "    print(event)",
+                "    set_ttl_on_table()",
+                ""
+             ]
+            ]
+          }          
+        },
+        "Description" : { "Fn::Sub" : [ "Set TTL assignment for table ${TableName}", { "TableName" : { "Ref" : "DynamoDBTable" } } ] },
+        "Environment" : {
+            "Variables" : {
+                "TableName" : { "Ref" : "DynamoDBTable" },
+                "TTLAttributeName" : { "Ref" : "TTLAttributeName" }
+            }
+        },
+        "Handler" : "index.lambda_handler",
+        "MemorySize" : 128,
+        "Role" : { "Fn::GetAtt": [ "TTLLambdaRole", "Arn" ] },
+        "Runtime" : "python2.7",
+        "Timeout" : 5,
+        "VpcConfig" : {
+          "Fn::If" : [
+            "UseVPC",
+            {
+              "SecurityGroupIds" : [ { "Ref" : "TTLLambdaSecurityGroup" }],
+              "SubnetIds" : { "Fn::Split" : [ ",", { "Ref" : "VPCSubnetList" } ] }
+            },
+            { "Ref" : "AWS::NoValue" }
+          ]
+        }
+      }
+    },
+    "TTLLambdaSecurityGroup" : {
+      "Type" : "AWS::EC2::SecurityGroup",
+      "Condition" : "UseVPC",
+      "Properties" : {
+        "GroupDescription" : "Security Group for TTL Lambda Egress",
+        "VpcId" : { "Ref" : "VPC" },
+        "SecurityGroupEgress" : [
+          {
+              "DestinationPrefixListId" : { "Ref" : "DDBEndpointPrefixList" },
+              "IpProtocol" : "-1" 
+          }
+        ]
+      }
+    },
+    "TTLLambdaLogGroup" : {
+      "Type" : "AWS::Logs::LogGroup",
+      "Properties" : {
+        "LogGroupName" : { "Fn::Sub" : [ "/aws/lambda/${Name}", { "Name" : { "Ref" : "TTLLambda" } } ] },
+        "RetentionInDays" : "7"
+      }
+    },
+    "TTLLambdaRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Path": "/",
+        "Policies": {
+          "Fn::If" : [
+            "UseVPC",
+            [
+              {
+                "PolicyName": "root",
+                "PolicyDocument": {
+                  "Version": "2012-10-17",
+                  "Statement": [
+                    {
+                      "Action": [
+                        "logs:CreateLogGroup",
+                        "logs:CreateLogStream",
+                        "logs:PutLogEvents"
+                      ],
+                      "Resource": "arn:aws:logs:*:*:*",
+                      "Effect": "Allow"
+                    },
+                    {
+                      "Action": [
+                        "dynamodb:UpdateTimeToLive"
+                      ],
+                      "Resource": { 
+                        "Fn::Sub" : [ 
+                          "arn:aws:dynamodb:${Region}:${Account}:table/${Name}",
+                          {
+                            "Region" : { "Ref" : "AWS::Region" },
+                            "Account" : { "Ref" : "AWS::AccountId" },
+                            "Name" : { "Ref" : "DynamoDBTable" }
+                          }
+                        ] 
+                      },
+                      "Effect": "Allow"
+                    },
+                    {
+                      "Effect":"Allow",
+                      "Action":[ 
+                        "ec2:CreateNetworkInterface",
+                        "ec2:DescribeNetworkInterfaces",
+                        "ec2:DeleteNetworkInterface"
+                      ],
+                      "Resource": [ 
+                        "*"
+                      ]
+                    }
+                  ]
+                }
+              }
+            ],
+            [
+              {
+                "PolicyName": "root",
+                "PolicyDocument": {
+                  "Version": "2012-10-17",
+                  "Statement": [
+                    {
+                      "Action": [
+                        "logs:CreateLogGroup",
+                        "logs:CreateLogStream",
+                        "logs:PutLogEvents"
+                      ],
+                      "Resource": "arn:aws:logs:*:*:*",
+                      "Effect": "Allow"
+                    },
+                    {
+                      "Action": [
+                        "dynamodb:UpdateTimeToLive"
+                      ],
+                      "Resource": { 
+                        "Fn::Sub" : [ 
+                          "arn:aws:dynamodb:${Region}:${Account}:table/${Name}",
+                          {
+                            "Region" : { "Ref" : "AWS::Region" },
+                            "Account" : { "Ref" : "AWS::AccountId" },
+                            "Name" : { "Ref" : "DynamoDBTable" }
+                          }
+                        ] 
+                      },
+                      "Effect": "Allow"
+                    }
+                  ]
+                }
+              }
+            ]
+          ]
+        }
+      }
+    },
+    "DynamoDBEndpoint" : {
+      "Type" : "AWS::EC2::VPCEndpoint",
+      "Condition" : "UseVPC",
+      "Properties" : {
+        "PolicyDocument" : {
+            "Version":"2012-10-17",
+            "Statement": [
+              {
+                "Effect" : "Allow",
+                "Principal" : "*",
+                "Action" : "*",
+                "Resource": [ { "Fn::Sub": [ "arn:aws:dynamodb:${Region}:${Account}:table/${TableName}", 
+                      { 
+                          "Region": { "Ref" : "AWS::Region" }, 
+                          "Account": { "Ref" : "AWS::AccountId" }, 
+                          "TableName" : { "Ref" : "DynamoDBTable" }
+                      } 
+                  ] } 
+                ] 
+              }
+          ]
+        },
+        "RouteTableIds" : [ { "Ref" : "VPCRouteTable" } ],
+        "ServiceName" : { "Fn::Sub" : [ "com.amazonaws.${Region}.dynamodb", { "Region" : { "Ref" : "AWS::Region" } } ] },
+        "VpcId" : { "Ref" : "VPC" }
+      }
+    },
+  },
+  "Outputs": {
+    "TableName" : {
+      "Description" : "The name of the created table",
+      "Value" : { "Ref" : "DynamoDBTable" }
+    },
+    "TableStreamArn" : {
+      "Description" : "The Arn to the table stream, if this was enabled",
+      "Value" : {
+        "Fn::If" : [
+          "StreamingSpecified",
+          { "Fn::GetAtt" : [ "DynamoDBTable", "StreamArn" ] },
+          ""
+        ]
+      }
+    },
+    "VPCEndpoint" : {
+      "Description" : "The Endpoint to the DynamoDB table, if a VPC is being used",
+      "Value" : {
+        "Fn::If" : [
+          "UseVPC",
+          { "Ref" : "DynamoDBEndpoint" },
+          ""
+        ]
+      }
+    }
+  }
+}
