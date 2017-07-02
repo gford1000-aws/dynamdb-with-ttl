@@ -20,7 +20,7 @@ Lambda is used to avoid needing to provision an EC2 Instance to perform the TTL 
 Notes:
 
 1. The ENI used by Lambda within a VPC may remain active, causing the stack to wait during deletion.  To resolve, switch to the EC2 Dashboard and manually Detach the ENI (easily identified in the dashboard).  Once the ENI is detached, delete it.  CloudFormation will then detect the dependency has been removed and continue its deletion of the stack.
-2. The RANGE key is optional.
+2. The RANGE key (`RangeKeyAttributeName`) is optional.  If not specified, then the `RangeKeyAttributeType` parameter is ignored.
 3. Streaming is optional.  To switch off, select NONE - otherwise any other selection will enable streaming.  This is useful so that deleted items can be captured from the stream (e.g. perhaps to archive in S3).
 4. If UpdateViaVPC is set to `true`, then `VPC`, `VPCRouteTable`, `VPCSubnetList`, and `DDBEndpointPrefixList` must be correctly specified (i.e. point to existing resources).  Otherwise these parameters are ignored.
 5. If a VPC is used, then the script creates a VPC Endpoint.  The Endpoint policy limits access to the new DynamoDB table, but allows all actions on the table, so that other processes can use the same Endpoint.  For this reason the Endpoint is returned as an output.
@@ -30,19 +30,19 @@ Notes:
 
 | Argument                      | Description                                                                     |
 | ----------------------------- |:-------------------------------------------------------------------------------:|
+| DDBEndpointPrefixList         | The VPC Endpoint to the DynamoDB service for the region                         |
 | HashKeyAttributeName          | The name of the attribute which is the HASH key for the table                   |
 | HashKeyAttributeType          | The type of the HASH key attribute                                              |
-| RangeKeyAttributeName         | The name of the attribute which is the RANGE key for the table (if defined)     |
-| RangeKeyAttributeType         | The type of the RANGE key attribute                                             |
 | ProvisionedReadCapacityUnits  | The read IOPS of the table                                                      |
 | ProvisionedWriteCapacityUnits | The write IOPS of the table                                                     |
-| TTLAttributeName              | The name of the attribute used for TTL.  This should be a Number type           |
+| RangeKeyAttributeName         | The name of the attribute which is the RANGE key for the table (if defined)     |
+| RangeKeyAttributeType         | The type of the RANGE key attribute                                             |
 | StreamType                    | The stream configuration for the table.  Select NONE for no streaming           |
+| TTLAttributeName              | The name of the attribute used for TTL.  This should be a Number type           |
 | UpdateViaVPC                  | Flag indicating whether a VPC is required for the TTL assignment                |
 | VPC                           | The VPC Id of the VPC in which the update Lambda should execute                 |
-| VPCSubnetList                 | The subnets within the VPC thate the Lambda should be associated with via ENI   |
 | VPCRouteTable                 | The route table within the VPC that provides the route to the DDB for Lambda    |
-| DDBEndpointPrefixList         | The VPC Endpoint to the DynamoDB service for the region                         |
+| VPCSubnetList                 | The subnets within the VPC thate the Lambda should be associated with via ENI   |
 
 
 ## Outputs
