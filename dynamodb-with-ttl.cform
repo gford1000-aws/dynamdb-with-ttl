@@ -144,7 +144,7 @@
         "State": "ENABLED",
         "Targets": [{
           "Arn": { "Fn::GetAtt": [ "ScheduledRuleTTLLambda", "Arn" ] },
-          "Id": { "Fn::Sub" : [ "TTL-Rule-${Lambda}", { "Lambda" : { "Ref": "ScheduledRuleTTLLambda" } } ] }
+          "Id": { "Fn::Sub" : [ "TTL-${DDB}", { "DDB" : { "Ref": "DynamoDBTable" } } ] }
         }]
       }
     },
