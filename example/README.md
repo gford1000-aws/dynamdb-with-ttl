@@ -4,7 +4,11 @@ This AWS Cloudformation script illustrates how a DynamoDB with TTL enabled can s
 which in turn can archive the item in S3.  This all occurs within a private VPC that has no access to the internet, instead using
 VPC Endpoints for both S3 and DynamoDB.
 
-The script leaves the standard [VPC creation script](https://github.com/gford1000-aws/vpc) and the [TTL script for DynamoDB](https://github.com/gford1000-aws/dynamdb-with-ttl).
+The script leaves the standard scripts:
+
+* [Run-once Lambda script](https://github.com/gford1000-aws/lambda-run-once)
+* [TTL script for DynamoDB](https://github.com/gford1000-aws/dynamdb-with-ttl)
+* [VPC creation script](https://github.com/gford1000-aws/vpc) 
 
 The Prefix List for the S3 and DynamoDB service can be found using the CLI: `aws ec2 describe-prefix-lists`.
 
@@ -28,6 +32,7 @@ Notes:
 | ProvisionedWriteCapacityUnits | The write IOPS of the table                                                     |
 | RangeKeyAttributeName         | The name of the attribute which is the RANGE key for the table (if defined)     |
 | RangeKeyAttributeType         | The type of the RANGE key attribute                                             |
+| RunOnceTemplateURL            | The URL of the template that for single execution of Lambda functions           |
 | S3EndpointPrefixList          | The Prefix List to the S3 service for the region                                |
 | TTLAttributeName              | The name of the attribute used for TTL.  This should be a Number type           |
 | TTLDynamoDBTemplateURL        | The S3 URL to the DynamoDB TTL template                                         |
