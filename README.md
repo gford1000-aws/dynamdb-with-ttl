@@ -9,7 +9,7 @@ The script creates the following:
 
 ![alt text](https://github.com/gford1000-aws/dynamdb-with-ttl/blob/master/DynamoDB%20table%20assignment%20of%20TTL.png "Script per designer")
 
-The script uses the (Run-Once Cloudformation script)[https://github.com/gford1000-aws/lambda-run-once] to schedule the execution of a Lambda function declared within this script. The two-step approach then allows this Lambda to run within a private VPC if this is required, updating the DynamoDB table via a VPC Endpoint.  This is useful 
+The script uses the [Run-Once Cloudformation script](https://github.com/gford1000-aws/lambda-run-once) to schedule the execution of a Lambda function declared within this script. The two-step approach then allows this Lambda to run within a private VPC if this is required, updating the DynamoDB table via a VPC Endpoint.  This is useful 
 when the resources being created have no direct access to call internet services (i.e. AWS services).
 
 Lambda is used to avoid needing to provision an EC2 Instance to perform the TTL assignment - it is both faster and cheaper.
