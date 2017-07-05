@@ -3,17 +3,14 @@
 Currently AWS Cloudformation (July 2017) does not provide the capability to declare the Time to Live (TTL) attribute on the items
 of a DynamoDB table.
 
-This Cloudformation script allows this to be applied, using Lambda and a CloudWatch Scheduled Event.
+This Cloudformation script allows this to be applied, using a one-time executed Lambda function.
 
 The script creates the following:
 
 ![alt text](https://github.com/gford1000-aws/dynamdb-with-ttl/blob/master/DynamoDB%20table%20assignment%20of%20TTL.png "Script per designer")
 
-The CloudWatch Event triggers a Lambda, whose only tasks are to asynchronously start another Lambda that will perform the TTL assignment, and then
-to disable the Event that triggered it (i.e. guaranteeing a "run once" model).  
-
-The two-step approach then allows the second Lambda to run within a private VPC if this is required, updating the DynamoDB table via a VPC Endpoint.  This is useful 
-when the solution has no direct access to call internet services (i.e. AWS services).
+The script uses the (Run-Once Cloudformation script)[https://github.com/gford1000-aws/lambda-run-once] to schedule the execution of a Lambda function declared within this script. The two-step approach then allows this Lambda to run within a private VPC if this is required, updating the DynamoDB table via a VPC Endpoint.  This is useful 
+when the resources being created have no direct access to call internet services (i.e. AWS services).
 
 Lambda is used to avoid needing to provision an EC2 Instance to perform the TTL assignment - it is both faster and cheaper.
 
@@ -37,10 +34,8 @@ Notes:
 | ProvisionedWriteCapacityUnits | The write IOPS of the table                                                     |
 | RangeKeyAttributeName         | The name of the attribute which is the RANGE key for the table (if defined)     |
 | RangeKeyAttributeType         | The type of the RANGE key attribute                                             |
-| StreamType                    | The stream configuration for the table.  Select NONE for no streaming           |
+| RunOnceTemplateURL            | The URL of the template that for single execution of Lambda functions           |
 | TTLAttributeName              | The name of the attribute used for TTL.  This should be a Number type           |
-| UpdateViaVPC                  | Flag indicating whether a VPC is required for the TTL assignment                |
-| VPC                           | The VPC Id of the VPC in which the update Lambda should execute                 |
 | VPCRouteTable                 | The route table within the VPC that provides the route to the DDB for Lambda    |
 | VPCSubnetList                 | The subnets within the VPC thate the Lambda should be associated with via ENI   |
 
